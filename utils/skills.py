@@ -1,82 +1,125 @@
+import json
+import os
 import re
 
-# Predefined skills list
+# Base skills for safety
 PREDEFINED_SKILLS = [
     "python", "sql", "machine learning", "nlp", "java", "cloud", "aws", 
-    "docker", "data analysis", "excel", "communication"
+    "docker", "data analysis", "excel", "communication", "javascript", "react", 
+    "node.js", "typescript", "c++", "c#", "git", "linux", "kubernetes", 
+    "tableau", "power bi", "nosql", "mongodb", "tensorflow", "pytorch", 
+    "scikit-learn", "project management", "leadership", "agile", "scrum",
+    "problem solving", "api", "rest", "backend", "frontend", "fullstack"
 ]
+
+# Load expanded skills from the Kaggle dataset processing
+try:
+    skills_db_path = os.path.join(os.path.dirname(__file__), "skills_database.json")
+    if os.path.exists(skills_db_path):
+        with open(skills_db_path, "r") as f:
+            expanded_skills = json.load(f)
+            # Use a set to prevent duplicates and merge
+            all_skills = set(PREDEFINED_SKILLS) | set(expanded_skills)
+            PREDEFINED_SKILLS = sorted(list(all_skills))
+except Exception as e:
+    print(f"Warning: Could not load expanded skills database: {e}")
+
 
 def extract_skills(text):
     """
     Extracts predefined skills from text using case-insensitive keyword matching.
-    Returns:
-        set: A set of unique extracted skill strings.
     """
     if not text:
         return set()
     
-    # Normalize text to lowercase for comparison
-    text_lower = text.lower()
+    # Normalize text for better matching
+    text_processed = text.lower()
+    text_processed = re.sub(r'[^a-zA-Z0-9\s#\+]', ' ', text_processed) # Keep # and + for C#, C++
     
     extracted = set()
     for skill in PREDEFINED_SKILLS:
-        # Use regex to find whole words only, ensuring no partial matches (e.g., 'java' in 'javascript')
-        # Handle skills with spaces like 'machine learning'
-        pattern = r'\b' + re.escape(skill) + r'\b'
-        if re.search(pattern, text_lower):
-            extracted.add(skill)
+        skill_lower = skill.lower()
+        # Use word boundaries - slightly more complex to handle things like '.net' or 'c++'
+        # Simple \b doesn't work well for all tech names
+        if f" {skill_lower} " in f" {text_processed} ":
+            extracted.add(skill_lower)
+        elif skill_lower in ["c++", "c#", ".net"] and skill_lower in text_processed:
+            extracted.add(skill_lower)
             
     return extracted
 
 def compare_skills(resume_skills, jd_skills):
     """
     Compares resume skills against job description skills.
-    Returns:
-        tuple: (matched_skills, missing_skills)
+    Deduplicates based on overlapping names to avoid noise.
     """
-    matched_skills = resume_skills.intersection(jd_skills)
-    missing_skills = jd_skills.difference(resume_skills)
+    matched_raw = resume_skills.intersection(jd_skills)
+    missing_raw = jd_skills.difference(resume_skills)
     
-    return sorted(list(matched_skills)), sorted(list(missing_skills))
+    # Simple Deduplication:
+    # If 'excel' is matched, don't show 'microsoft excel' as missing.
+    # If 'python' is matched, don't show 'python programming' as missing.
+    final_missing = set()
+    for m in missing_raw:
+        is_redundant = False
+        for matched in matched_raw:
+            # Check if one is a substring of another
+            if m in matched or matched in m:
+                is_redundant = True
+                break
+        if not is_redundant:
+            final_missing.add(m)
+    
+    return sorted(list(matched_raw)), sorted(list(final_missing))
+
 
 def skill_match_score(resume_skills, jd_skills):
-    """
-    Calculates the percentage of JD skills present in the resume.
-    Handles division by zero if JD has no predefined skills.
-    """
     if not jd_skills:
         return 0
-    
     matched_skills = resume_skills.intersection(jd_skills)
-    score = (len(matched_skills) / len(jd_skills)) * 100
-    return round(score)
+    return round((len(matched_skills) / len(jd_skills)) * 100)
 
-def generate_explanation(similarity_score, skill_score, matched_skills, missing_skills):
+def generate_explanation(similarity_score, skill_score, matched_skills, missing_skills, semantic_keywords=None):
     """
-    Generates a short, rule-based explanation for the ranking.
+    Generates a contextual explanation including semantic match details.
     """
     # Skill-based segment
-    if skill_score > 70:
-        skill_eval = "strong alignment in core skills"
+    if skill_score > 75:
+        skill_eval = "exceptional technical alignment"
     elif skill_score >= 40:
-        skill_eval = "moderate alignment in skills"
+        skill_eval = "moderate skill alignment"
     else:
-        skill_eval = "limited skill match"
+        skill_eval = "limited direct skill match"
 
     # Semantic-based segment
-    if similarity_score < 30:
-        sim_eval = "but shows low contextual relevance to the JD"
+    if similarity_score >= 60:
+        sim_eval = "with strong contextual relevance"
+    elif similarity_score >= 30:
+        sim_eval = "with fair industry relevance"
     else:
-        sim_eval = "and solid overall profile relevance"
+        sim_eval = "but low contextual overlap"
 
-    explanation = f"This candidate has {skill_eval} {sim_eval}."
+    explanation = f"Candidate shows {skill_eval} {sim_eval}."
 
-    # Highlight specific skills
-    if matched_skills:
-        # Take top 2 skills for brevity
-        explanation += f" They are proficient in {', '.join([s.title() for s in matched_skills[:2]])}."
+    # Semantic keywords insight
+    if semantic_keywords:
+        relevant_terms = [t for t in semantic_keywords if len(t) > 3]
+        if relevant_terms:
+            explanation += f" Strongest semantic overlaps found in terms like: {', '.join(relevant_terms[:3])}."
+
+    # Skill highlights
+    matched_list = sorted(list(matched_skills))
+    missing_list = sorted(list(missing_skills))
+
+    if matched_list:
+        top_matched = [s.title() for s in matched_list[:3]]
+        explanation += f" Key strengths: {', '.join(top_matched)}."
     
-    if missing_skills:
-        explanation += f" However, key areas like {', '.join([s.title() for s in missing_skills[:2]])} were not identified in the resume."
+    if missing_list and skill_score < 90:
+        top_missing = [s.title() for s in missing_list[:2]]
+        explanation += f" Potential gaps identified: {', '.join(top_missing)}."
 
     return explanation
+
+
+
