@@ -78,7 +78,8 @@ function Dashboard() {
     fd.append('jd_text', jdText);
     files.forEach(f => fd.append('files', f));
     try {
-      const res = await fetch('http://localhost:8000/analyze', { method: 'POST', body: fd });
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${API_BASE_URL}/analyze`, { method: 'POST', body: fd });
       const d = await res.json();
       setResults(d.results);
     } catch (e) { setError(e.message); } finally { setLoading(false); }
@@ -92,7 +93,8 @@ function Dashboard() {
     fd.append('missing_skills', JSON.stringify(c.missing_skills || []));
     fd.append('resume_text', c.resume_text || ''); fd.append('history', '[]');
     try {
-      const res = await fetch('http://localhost:8000/interview/start', { method: 'POST', body: fd });
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${API_BASE_URL}/interview/start`, { method: 'POST', body: fd });
       const d = await res.json();
       setQuestions([d.question]); speak(d.question);
     } catch (e) { alert(e.message); } finally { setInterviewLoading(false); }
@@ -112,7 +114,8 @@ function Dashboard() {
       fd.append('questions', JSON.stringify(questions));
       fd.append('answers', JSON.stringify(newAnswers));
       try {
-        const res = await fetch('http://localhost:8000/interview/evaluate', { method: 'POST', body: fd });
+        const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        const res = await fetch(`${API_BASE_URL}/interview/evaluate`, { method: 'POST', body: fd });
         const d = await res.json();
         setInterviewResult(d);
       } catch (e) { alert(e.message); } finally { setInterviewLoading(false); }
@@ -127,7 +130,8 @@ function Dashboard() {
     fd.append('resume_text', modal.resume_text || '');
     fd.append('history', JSON.stringify(newHistory));
     try {
-      const res = await fetch('http://localhost:8000/interview/start', { method: 'POST', body: fd });
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${API_BASE_URL}/interview/start`, { method: 'POST', body: fd });
       const d = await res.json();
       const nq = [...questions, d.question];
       setQuestions(nq); setQIdx(newHistory.length);
@@ -139,7 +143,8 @@ function Dashboard() {
     const fd = new FormData();
     fd.append('email', c.email || 'candidate@example.com');
     fd.append('candidate_name', c.name);
-    const res = await fetch('http://localhost:8000/interview/invite', { method: 'POST', body: fd });
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const res = await fetch(`${API_BASE_URL}/interview/invite`, { method: 'POST', body: fd });
     const d = await res.json();
     alert('Invite link: ' + d.interview_link);
   };

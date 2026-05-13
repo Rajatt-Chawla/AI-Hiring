@@ -193,7 +193,8 @@ export default function InterviewPortal({ jdText: propJd }) {
     fd.append('missing_skills', '[]');
     fd.append('history', JSON.stringify(hist));
     try {
-      const res = await fetch('http://localhost:8000/interview/start', { method: 'POST', body: fd });
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${API_BASE_URL}/interview/start`, { method: 'POST', body: fd });
       const d = await res.json();
       const q = d.question || 'Tell me about yourself.';
       const newQ = [...questionsRef.current, q];
@@ -245,7 +246,8 @@ export default function InterviewPortal({ jdText: propJd }) {
     fd.append('questions', JSON.stringify(allQuestions));
     fd.append('answers', JSON.stringify(answers));
     try {
-      const res = await fetch('http://localhost:8000/interview/evaluate', { method: 'POST', body: fd });
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${API_BASE_URL}/interview/evaluate`, { method: 'POST', body: fd });
       const d = await res.json();
       setResult(d);
       setPhase('result');
