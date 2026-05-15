@@ -76,7 +76,7 @@ function Dashboard() {
     if (!jdText || files.length === 0) return;
     setLoading(true); setError(null); setResults([]); setScanProgress(0);
 
-    const BATCH_SIZE = 10;
+    const BATCH_SIZE = 3;
     const totalFiles = files.length;
     let allResults = [];
     let processed = 0;

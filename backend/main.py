@@ -115,8 +115,8 @@ async def analyze_resumes(
         file_tasks.append((content, file.filename))
     
     results = []
-    # Use ThreadPoolExecutor for I/O bound PDF extraction and CPU bound cleaning/matching
-    with ThreadPoolExecutor() as executor:
+    # Use ThreadPoolExecutor with limited workers to prevent OOM on Render (512MB limit)
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = [
             executor.submit(process_single_resume, content, filename, jd_text, jd_cleaned, jd_skills, vectorizer, jd_tfidf_dense)
             for content, filename in file_tasks
