@@ -141,7 +141,7 @@ def main():
 
             with ThreadPoolExecutor() as executor:
                 futures = [
-                    executor.submit(process_resume, f, jd_text, jd_cleaned, jd_skills, vectorizer, jd_tfidf_dense)
+                    executor.submit(process_resume, f, jd_text, jd_cleaned, jd_skills, vectorizer, jd_tfidf)
                     for f in uploaded_files
                 ]
                 for future in futures:
