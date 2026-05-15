@@ -76,33 +76,41 @@ function Dashboard() {
     if (!jdText || files.length === 0) return;
     setLoading(true); setError(null); setResults([]); setScanProgress(0);
 
-    const BATCH_SIZE = 3;
-    const totalFiles = files.length;
-    let allResults = [];
-    let processed = 0;
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
-    for (let i = 0; i < totalFiles; i += BATCH_SIZE) {
-      const chunk = files.slice(i, i + BATCH_SIZE);
-      const fd = new FormData();
-      fd.append('jd_text', jdText);
-      chunk.forEach(f => fd.append('files', f));
+    try {
+      // Wake up the server
+      await fetch(`${API_BASE_URL}/health`).catch(() => {});
+      
+      const BATCH_SIZE = 3;
+      const totalFiles = files.length;
+      let processed = 0;
 
-      try {
-        const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      for (let i = 0; i < totalFiles; i += BATCH_SIZE) {
+        const chunk = files.slice(i, i + BATCH_SIZE);
+        const fd = new FormData();
+        fd.append('jd_text', jdText);
+        chunk.forEach(f => fd.append('files', f));
+
         const res = await fetch(`${API_BASE_URL}/analyze`, { method: 'POST', body: fd });
         if (!res.ok) throw new Error('Batch failed');
         const d = await res.json();
         
-        allResults = [...allResults, ...d.results].sort((a, b) => b.final_score - a.final_score);
-        setResults([...allResults]);
+        // Use functional update to show results as they come in
+        setResults(prev => {
+          const newList = [...(prev || []), ...d.results];
+          return newList.sort((a, b) => b.final_score - a.final_score);
+        });
+
         processed += chunk.length;
         setScanProgress(Math.round((processed / totalFiles) * 100));
-      } catch (e) { 
-        console.error("Batch error:", e);
-        setError(`Failed at resume ${processed + 1}. Continuing...`); 
       }
+    } catch (e) { 
+      console.error("Batch error:", e);
+      setError(`Server issue. Please wait 1 min for Render to wake up and try again.`); 
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const startInterview = async (c) => {
