@@ -1,176 +1,198 @@
 import streamlit as st
-from utils.parser import extract_text_from_pdf
+import pandas as pd
+from utils.parser import extract_text_from_pdf, extract_email
 from utils.preprocess import clean_text
 from utils.matcher import calculate_match_score
 from utils.skills import extract_skills, compare_skills, skill_match_score, generate_explanation
 import re
+import io
 
 # Page Config
 st.set_page_config(
-        page_title="AI Hiring Copilot v2",
-        page_icon="🤖",
+        page_title="AI Hiring Copilot - Mass Processing",
+        page_icon="🚀",
         layout="wide"
 )
 
-# Custom Styling (Enhanced UI)
+# Custom Styling
 st.markdown("""
     <style>
-    .main { background-color: #f0f2f6; }
-    .stTitle { color: #2c3e50; }
-    .stHeader { color: #34495e; }
-    .section-header { 
-        font-size: 1.5rem; 
-        font-weight: bold; 
-        margin-bottom: 10px; 
-        color: #1e3a8a;
+    .main { background-color: #f8fafc; }
+    .stMetric { 
+        background-color: #ffffff; 
+        padding: 15px; 
+        border-radius: 10px; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
-    .clean-box {
-        background-color: #ffffff;
-        color: #2c3e50;
-        padding: 15px;
-        border-radius: 5px;
-        border-left: 5px solid #10b981;
-        font-family: monospace;
+    .status-card {
+        padding: 20px;
+        border-radius: 12px;
+        background: white;
+        border: 1px solid #e2e8f0;
         margin-bottom: 20px;
-    }
-    .score-badge {
-        font-size: 2.5rem;
-        font-weight: 800;
-        color: #1d4ed8;
-        background-color: #dbeafe;
-        padding: 5px 25px;
-        border-radius: 50px;
-        display: inline-block;
-        margin-bottom: 25px;
-        border: 2px solid #3b82f6;
     }
     .skill-tag {
         display: inline-block;
-        margin-right: 8px;
-        margin-bottom: 8px;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.9rem;
+        margin-right: 5px;
+        margin-bottom: 5px;
+        padding: 2px 10px;
+        border-radius: 15px;
+        font-size: 0.8rem;
+        font-weight: 500;
     }
-    .skill-matched {
-        background-color: #d1fae5;
-        color: #065f46;
-        border: 1px solid #10b981;
-    }
-    .skill-missing {
-        background-color: #fee2e2;
-        color: #991b1b;
-        border: 1px solid #ef4444;
-    }
+    .skill-matched { background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+    .skill-missing { background-color: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
     </style>
 """, unsafe_allow_html=True)
 
 def main():
-    st.title("🤖 AI Hiring Copilot")
-    st.caption("Enhanced with NLP Preprocessing & JD Analysis")
-    st.divider()
-
-    # Layout with columns
-    col_input, col_output = st.columns([1, 1], gap="large")
-
-    with col_input:
-        st.markdown("<div class='section-header'>📥 Input Sources</div>", unsafe_allow_html=True)
+    st.title("🚀 AI Hiring Copilot: Mass Resume Scanner")
+    st.caption("Bulk process resumes and rank candidates with semantic & skill-based intelligence.")
+    
+    # Sidebar for Inputs
+    with st.sidebar:
+        st.header("📥 Input Sources")
+        jd_text = st.text_area("Job Description", height=250, placeholder="Paste JD here...")
+        uploaded_files = st.file_uploader("Upload Resumes (PDF)", type=["pdf"], accept_multiple_files=True)
         
-        # 1. Resume Upload
-        st.write("### Resumes")
-        uploaded_files = st.file_uploader("Upload Profile(s) (PDF)", type=["pdf"], accept_multiple_files=True)
-        
-        # 2. JD Text Area
-        st.write("### Job Description")
-        jd_text = st.text_area("Paste the Job Description here", height=200, placeholder="We are looking for a Senior Developer with expertise in...")
+        st.divider()
+        st.info("💡 Processing many resumes may take a few moments depending on the file sizes.")
 
-    # Process and View
-    if uploaded_files and jd_text:
-        candidate_results = []
-        
-        # Step 1: Extract and Process JD once
-        with st.spinner("Analyzing Job Description..."):
-            jd_cleaned = clean_text(jd_text)
-            jd_skills = extract_skills(jd_text)
+    if not jd_text or not uploaded_files:
+        st.info("👈 Please paste a Job Description and upload resumes to start.")
+        # Welcome Screen / Instructions
+        col1, col2, col3 = st.columns(3)
+        col1.markdown("### 1. Upload\nDrop multiple PDF resumes in the sidebar.")
+        col2.markdown("### 2. Analyze\nAI parses text, extracts skills, and calculates scores.")
+        col3.markdown("### 3. Rank\nView results in a sortable dashboard and export.")
+        return
 
-        # Step 2: Extract and Process each Resume
-        with st.spinner(f"Processing {len(uploaded_files)} resumes..."):
-            for uploaded_file in uploaded_files:
-                # Extraction
-                resume_raw = extract_text_from_pdf(uploaded_file)
-                if not resume_raw.strip():
-                    continue # Skip empty resumes
-                    
-                # Cleaning
-                resume_cleaned = clean_text(resume_raw)
-                
-                # Scoring
-                similarity_score = calculate_match_score(resume_cleaned, jd_cleaned)
-                resume_skills = extract_skills(resume_raw)
-                matched, missing = compare_skills(resume_skills, jd_skills)
-                skill_score = skill_match_score(resume_skills, jd_skills)
-                
-                # Hybrid Calculation: 70% Semantic, 30% Skills
-                final_score = round((0.7 * similarity_score) + (0.3 * skill_score))
-                
-                # Explanation
-                explanation = generate_explanation(similarity_score, skill_score, matched, missing)
-                
-                candidate_results.append({
-                    "name": uploaded_file.name,
-                    "final_score": final_score,
-                    "sim_score": similarity_score,
-                    "skill_score": skill_score,
-                    "matched": matched,
-                    "missing": missing,
-                    "explanation": explanation,
-                    "resume_cleaned": resume_cleaned
-                })
+    # Process JD once
+    jd_cleaned = clean_text(jd_text)
+    jd_skills = extract_skills(jd_text)
 
-        # Step 3: Sort candidates by score
-        candidate_results.sort(key=lambda x: x["final_score"], reverse=True)
-
-        with col_output:
-            st.markdown("<div class='section-header'>🏆 Ranked Candidates</div>", unsafe_allow_html=True)
-            st.caption("🔍 Score is calculated using both semantic similarity and skill matching for better accuracy.")
+    # Process Resumes
+    all_results = []
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    with st.status("🔍 Processing Resumes...", expanded=True) as status:
+        for i, file in enumerate(uploaded_files):
+            status_text.text(f"Analyzing {file.name}...")
             
-            if not candidate_results:
-                st.warning("No readable resume text found in uploaded files.")
-            else:
-                for i, candidate in enumerate(candidate_results):
-                    rank = i + 1
-                    with st.expander(f"#{rank} | {candidate['name']} — {candidate['final_score']}% Match", expanded=(i==0)):
-                        # Score Breakdown
-                        col_m1, col_m2 = st.columns(2)
-                        col_m1.metric("Semantic Relevance", f"{candidate['sim_score']}%")
-                        col_m2.metric("Skill Alignment", f"{candidate['skill_score']}%")
-
-                        # Explanation
-                        st.markdown(f"**AI Explanation:** {candidate['explanation']}")
-                        
-                        st.divider()
-                        
-                        # Skills
-                        st.write("**Matched Skills:**")
-                        if candidate['matched']:
-                            skill_html = "".join([f"<span class='skill-tag skill-matched'>{s.title()}</span>" for s in candidate['matched']])
-                            st.markdown(skill_html, unsafe_allow_html=True)
-                        else:
-                            st.info("No matching skills found.")
-
-                        st.write("**Missing Skills:**")
-                        if candidate['missing']:
-                            skill_html = "".join([f"<span class='skill-tag skill-missing'>{s.title()}</span>" for s in candidate['missing']])
-                            st.markdown(skill_html, unsafe_allow_html=True)
-                        else:
-                            st.success("All JD skills present!")
-
-                        # Raw NLP View (Inside the expander, hidden by default)
-                        with st.popover("View NLP Details"):
-                            st.info("Normalized text used for TF-IDF processing.")
-                            st.markdown(f"<div class='clean-box'>{candidate['resume_cleaned']}</div>", unsafe_allow_html=True)
+            # Extraction
+            text_raw = extract_text_from_pdf(file)
+            if "Error" in text_raw or not text_raw.strip():
+                continue
                 
-                st.success(f"Successfully ranked {len(candidate_results)} candidates.")
+            # Info Extraction
+            email = extract_email(text_raw)
+            text_cleaned = clean_text(text_raw)
+            
+            # Scoring
+            sim_score = calculate_match_score(text_cleaned, jd_cleaned)
+            resume_skills = extract_skills(text_raw)
+            matched, missing = compare_skills(resume_skills, jd_skills)
+            skill_score = skill_match_score(resume_skills, jd_skills)
+            
+            # Hybrid Score
+            final_score = round((0.7 * sim_score) + (0.3 * skill_score))
+            
+            all_results.append({
+                "Candidate Name": file.name,
+                "Email": email,
+                "Final Score": final_score,
+                "Semantic Score": sim_score,
+                "Skill Score": skill_score,
+                "Matched Skills": ", ".join(list(matched)),
+                "Missing Skills": ", ".join(list(missing)),
+                "Explanation": generate_explanation(sim_score, skill_score, matched, missing)
+            })
+            
+            progress_bar.progress((i + 1) / len(uploaded_files))
+        
+        status.update(label=f"✅ Finished processing {len(all_results)} resumes!", state="complete", expanded=False)
+
+    if not all_results:
+        st.error("No valid data could be extracted from the uploaded files.")
+        return
+
+    # Convert to Dataframe
+    df = pd.DataFrame(all_results)
+    df = df.sort_values(by="Final Score", ascending=False)
+
+    # Dashboard
+    st.divider()
+    
+    # Metrics Row
+    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+    m_col1.metric("Total Candidates", len(all_results))
+    m_col2.metric("Avg. Match", f"{round(df['Final Score'].mean())}%")
+    m_col3.metric("Top Score", f"{df['Final Score'].max()}%")
+    
+    # Export options
+    csv = df.to_csv(index=False).encode('utf-8')
+    m_col4.download_button(
+        label="📥 Download Report (CSV)",
+        data=csv,
+        file_name='hiring_report.csv',
+        mime='text/csv',
+    )
+
+    # Tabs for different views
+    tab1, tab2 = st.tabs(["📊 Comparison Dashboard", "👤 Individual Deep-Dive"])
+
+    with tab1:
+        st.subheader("Candidate Rankings")
+        st.dataframe(
+            df[["Candidate Name", "Final Score", "Semantic Score", "Skill Score", "Matched Skills"]],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Final Score": st.column_config.ProgressColumn(format="%d%%", min_value=0, max_value=100),
+                "Semantic Score": st.column_config.NumberColumn(format="%d%%"),
+                "Skill Score": st.column_config.NumberColumn(format="%d%%"),
+            }
+        )
+
+    with tab2:
+        st.subheader("Individual Assessment")
+        selected_name = st.selectbox("Select a candidate to view details", df["Candidate Name"].tolist())
+        
+        if selected_name:
+            cand = df[df["Candidate Name"] == selected_name].iloc[0]
+            
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                st.markdown(f"### {cand['Candidate Name']}")
+                st.write(f"📧 **Email:** {cand['Email']}")
+                st.metric("Overall Match", f"{cand['Final Score']}%")
+            
+            with c2:
+                st.info(f"**AI Insight:** {cand['Explanation']}")
+                
+                st.write("**Skill Breakdown:**")
+                # Matched
+                m_skills = cand['Matched Skills'].split(", ") if cand['Matched Skills'] else []
+                ms_skills = cand['Missing Skills'].split(", ") if cand['Missing Skills'] else []
+                
+                cols = st.columns(2)
+                with cols[0]:
+                    st.write("✅ **Found:**")
+                    if m_skills:
+                        for s in m_skills:
+                            st.markdown(f"<span class='skill-tag skill-matched'>{s}</span>", unsafe_allow_html=True)
+                    else:
+                        st.write("None")
+                
+                with cols[1]:
+                    st.write("❌ **Missing:**")
+                    if ms_skills:
+                        for s in ms_skills:
+                            st.markdown(f"<span class='skill-tag skill-missing'>{s}</span>", unsafe_allow_html=True)
+                    else:
+                        st.write("None")
 
 if __name__ == "__main__":
     main()
