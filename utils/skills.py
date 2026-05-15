@@ -25,28 +25,32 @@ except Exception as e:
     print(f"Warning: Could not load expanded skills database: {e}")
 
 
+# Pre-compile skills regex for performance
+SKILLS_PATTERN = None
+
+def get_skills_pattern():
+    global SKILLS_PATTERN
+    if SKILLS_PATTERN is None:
+        # Sort by length descending to match longer phrases first (e.g., 'machine learning' before 'machine')
+        sorted_skills = sorted(PREDEFINED_SKILLS, key=len, reverse=True)
+        # Create a large OR pattern with word boundaries
+        # Use a non-capturing group for speed
+        pattern_str = r'\b(?:' + '|'.join(re.escape(s) for s in sorted_skills) + r')\b'
+        SKILLS_PATTERN = re.compile(pattern_str, re.IGNORECASE)
+    return SKILLS_PATTERN
+
 def extract_skills(text):
     """
-    Extracts predefined skills from text using case-insensitive keyword matching.
+    Extracts predefined skills from text using a pre-compiled regex for maximum performance.
     """
     if not text:
         return set()
     
-    # Normalize text for better matching
-    text_processed = text.lower()
-    text_processed = re.sub(r'[^a-zA-Z0-9\s#\+]', ' ', text_processed) # Keep # and + for C#, C++
+    pattern = get_skills_pattern()
+    # Find all matches in one pass
+    matches = pattern.findall(text)
     
-    extracted = set()
-    for skill in PREDEFINED_SKILLS:
-        skill_lower = skill.lower()
-        # Use word boundaries - slightly more complex to handle things like '.net' or 'c++'
-        # Simple \b doesn't work well for all tech names
-        if f" {skill_lower} " in f" {text_processed} ":
-            extracted.add(skill_lower)
-        elif skill_lower in ["c++", "c#", ".net"] and skill_lower in text_processed:
-            extracted.add(skill_lower)
-            
-    return extracted
+    return set(m.lower() for m in matches)
 
 def compare_skills(resume_skills, jd_skills):
     """

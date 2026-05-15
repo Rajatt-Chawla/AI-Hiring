@@ -93,19 +93,22 @@ def main():
             jd_cleaned = clean_text(jd_text)
             jd_skills = extract_skills(jd_text)
 
-        # Step 2: Extract and Process each Resume
-        with st.spinner(f"Processing {len(uploaded_files)} resumes..."):
-            for uploaded_file in uploaded_files:
+        # Step 2: Extract and Process each Resume (Parallelized)
+        from concurrent.futures import ThreadPoolExecutor
+        from sklearn.feature_extraction.text import TfidfVectorizer
+
+        def process_resume(uploaded_file, jd_text, jd_cleaned, jd_skills, vectorizer, jd_tfidf_dense):
+            try:
                 # Extraction
                 resume_raw = extract_text_from_pdf(uploaded_file)
                 if not resume_raw.strip():
-                    continue # Skip empty resumes
+                    return None
                     
                 # Cleaning
                 resume_cleaned = clean_text(resume_raw)
                 
-                # Scoring
-                similarity_score = calculate_match_score(resume_cleaned, jd_cleaned)
+                # Scoring (using pre-fitted components)
+                similarity_score, _ = calculate_match_score(resume_cleaned, jd_text, vectorizer, jd_tfidf_dense)
                 resume_skills = extract_skills(resume_raw)
                 matched, missing = compare_skills(resume_skills, jd_skills)
                 skill_score = skill_match_score(resume_skills, jd_skills)
@@ -116,7 +119,7 @@ def main():
                 # Explanation
                 explanation = generate_explanation(similarity_score, skill_score, matched, missing)
                 
-                candidate_results.append({
+                return {
                     "name": uploaded_file.name,
                     "final_score": final_score,
                     "sim_score": similarity_score,
@@ -125,7 +128,26 @@ def main():
                     "missing": missing,
                     "explanation": explanation,
                     "resume_cleaned": resume_cleaned
-                })
+                }
+            except Exception as e:
+                return None
+
+        with st.spinner(f"Processing {len(uploaded_files)} resumes in parallel..."):
+            # Pre-fit for efficiency
+            vectorizer = TfidfVectorizer()
+            vectorizer.fit([jd_cleaned])
+            jd_tfidf = vectorizer.transform([jd_cleaned])
+            jd_tfidf_dense = jd_tfidf.toarray()[0]
+
+            with ThreadPoolExecutor() as executor:
+                futures = [
+                    executor.submit(process_resume, f, jd_text, jd_cleaned, jd_skills, vectorizer, jd_tfidf_dense)
+                    for f in uploaded_files
+                ]
+                for future in futures:
+                    res = future.result()
+                    if res:
+                        candidate_results.append(res)
 
         # Step 3: Sort candidates by score
         candidate_results.sort(key=lambda x: x["final_score"], reverse=True)

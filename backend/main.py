@@ -36,6 +36,57 @@ app.add_middleware(
 async def health_check():
     return {"status": "healthy"}
 
+from concurrent.futures import ThreadPoolExecutor
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+def process_single_resume(file_content, filename, jd_text, jd_cleaned, jd_skills, vectorizer, jd_tfidf_dense):
+    """Helper function to process a single resume in a thread."""
+    try:
+        import io
+        # Extraction - pdfplumber can handle BytesIO
+        resume_raw = extract_text_from_pdf(io.BytesIO(file_content))
+        if not resume_raw.strip() or "Error extracting text" in resume_raw:
+            return None
+        
+        # Cleaning
+        resume_cleaned = clean_text(resume_raw)
+        
+        # Scoring using pre-fitted vectorizer
+        similarity_score, keywords = calculate_match_score(resume_cleaned, jd_text, vectorizer, jd_tfidf_dense)
+        resume_skills = extract_skills(resume_raw)
+        matched, missing = compare_skills(resume_skills, jd_skills)
+        s_match_score = skill_match_score(resume_skills, jd_skills)
+        
+        # Education and Experience
+        qual_info = match_qualifications(resume_raw, jd_text)
+        
+        # Scoring Logic
+        analytics_score = round((0.4 * similarity_score) + (qual_info["education_match"] * 15) + (qual_info["exp_match"] * 15))
+        skills_part = round(0.3 * s_match_score)
+        final_score = min(100, analytics_score + skills_part)
+        
+        # Explanation
+        explanation = generate_explanation(similarity_score, s_match_score, matched, missing, keywords)
+        
+        return {
+            "name": filename,
+            "email": extract_email(resume_raw),
+            "resume_text": resume_raw,
+            "final_score": final_score,
+            "analytics_score": analytics_score,
+            "skill_score_weighted": skills_part,
+            "semantic_raw": similarity_score,
+            "skills_raw": s_match_score,
+            "matched_skills": list(matched),
+            "missing_skills": list(missing),
+            "semantic_keywords": keywords,
+            "qualifications": qual_info,
+            "explanation": explanation
+        }
+    except Exception as e:
+        print(f"Error processing {filename}: {e}")
+        return None
+
 @app.post("/analyze")
 async def analyze_resumes(
     jd_text: str = Form(...),
@@ -48,66 +99,32 @@ async def analyze_resumes(
     jd_cleaned = clean_text(jd_text)
     jd_skills = extract_skills(jd_text)
     
-    results = []
-    
+    # Pre-fit TfidfVectorizer on JD
+    vectorizer = TfidfVectorizer()
+    # We fit on [jd_cleaned] to establish the vocabulary
+    vectorizer.fit([jd_cleaned])
+    jd_tfidf = vectorizer.transform([jd_cleaned])
+    jd_tfidf_dense = jd_tfidf.toarray()[0]
+
+    # Prepare files for parallel processing
+    file_tasks = []
     for file in files:
-        # Create a temporary file to save the upload
-        temp_path = f"temp_{file.filename}"
-        with open(temp_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # Read file content once to pass to threads
+        content = await file.read()
+        file_tasks.append((content, file.filename))
+    
+    results = []
+    # Use ThreadPoolExecutor for I/O bound PDF extraction and CPU bound cleaning/matching
+    with ThreadPoolExecutor() as executor:
+        futures = [
+            executor.submit(process_single_resume, content, filename, jd_text, jd_cleaned, jd_skills, vectorizer, jd_tfidf_dense)
+            for content, filename in file_tasks
+        ]
         
-        try:
-            # Extraction
-            resume_raw = extract_text_from_pdf(temp_path)
-            if not resume_raw.strip():
-                continue
-            
-            # Cleaning
-            resume_cleaned = clean_text(resume_raw)
-            
-            # Scoring
-            similarity_score, keywords = calculate_match_score(resume_cleaned, jd_cleaned)
-            resume_skills = extract_skills(resume_raw)
-            matched, missing = compare_skills(resume_skills, jd_skills)
-            s_match_score = skill_match_score(resume_skills, jd_skills)
-            
-            # Education and Experience
-            qual_info = match_qualifications(resume_raw, jd_text)
-            
-            # Score Groups:
-            # 1. Semantic Analytics (incl. Edu/Exp): 70%
-            #    (40% NLP Context, 15% Edu Match, 15% Exp Match)
-            # 2. Skills Matching: 30%
-            
-            analytics_score = round((0.4 * similarity_score) + (qual_info["education_match"] * 15) + (qual_info["exp_match"] * 15))
-            skills_part = round(0.3 * s_match_score)
-            
-            final_score = min(100, analytics_score + skills_part)
-            
-            # Explanation
-            explanation = generate_explanation(similarity_score, s_match_score, matched, missing, keywords)
-            
-            results.append({
-                "name": file.filename,
-                "email": extract_email(resume_raw),
-                "resume_text": resume_raw, # Include raw text for interview context
-                "final_score": final_score,
-                "analytics_score": analytics_score,
-                "skill_score_weighted": skills_part,
-                "semantic_raw": similarity_score,
-                "skills_raw": s_match_score,
-                "matched_skills": list(matched),
-                "missing_skills": list(missing),
-                "semantic_keywords": keywords,
-                "qualifications": qual_info,
-                "explanation": explanation
-            })
-
-
-        finally:
-            # Clean up temp file
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
+        for future in futures:
+            res = future.result()
+            if res:
+                results.append(res)
     
     # Sort by final score
     results.sort(key=lambda x: x["final_score"], reverse=True)
