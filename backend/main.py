@@ -22,15 +22,16 @@ app = FastAPI(title="AI Hiring Copilot API")
 # Enable CORS for frontend interaction
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://ai-hiring-zeta.vercel.app",
-        "http://localhost:5173",
-        "http://localhost:3000"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def log_requests(request, call_next):
+    print(f"Incoming request: {request.method} {request.url}")
+    return await call_next(request)
 
 @app.get("/health")
 async def health_check():
