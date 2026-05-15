@@ -26,7 +26,6 @@ function Dashboard() {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
-  const [scanProgress, setScanProgress] = useState(0);
   const [error, setError] = useState(null);
   const [modal, setModal] = useState(null); // candidate obj
   const [questions, setQuestions] = useState([]);
@@ -74,43 +73,16 @@ function Dashboard() {
 
   const handleAnalyze = async () => {
     if (!jdText || files.length === 0) return;
-    setLoading(true); setError(null); setResults([]); setScanProgress(0);
-
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
+    setLoading(true); setError(null);
+    const fd = new FormData();
+    fd.append('jd_text', jdText);
+    files.forEach(f => fd.append('files', f));
     try {
-      // Wake up the server
-      await fetch(`${API_BASE_URL}/health`).catch(() => {});
-      
-      const BATCH_SIZE = 3;
-      const totalFiles = files.length;
-      let processed = 0;
-
-      for (let i = 0; i < totalFiles; i += BATCH_SIZE) {
-        const chunk = files.slice(i, i + BATCH_SIZE);
-        const fd = new FormData();
-        fd.append('jd_text', jdText);
-        chunk.forEach(f => fd.append('files', f));
-
-        const res = await fetch(`${API_BASE_URL}/analyze`, { method: 'POST', body: fd });
-        if (!res.ok) throw new Error('Batch failed');
-        const d = await res.json();
-        
-        // Use functional update to show results as they come in
-        setResults(prev => {
-          const newList = [...(prev || []), ...d.results];
-          return newList.sort((a, b) => b.final_score - a.final_score);
-        });
-
-        processed += chunk.length;
-        setScanProgress(Math.round((processed / totalFiles) * 100));
-      }
-    } catch (e) { 
-      console.error("Batch error:", e);
-      setError(`Server issue. Please wait 1 min for Render to wake up and try again.`); 
-    } finally {
-      setLoading(false);
-    }
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${API_BASE_URL}/analyze`, { method: 'POST', body: fd });
+      const d = await res.json();
+      setResults(d.results);
+    } catch (e) { setError(e.message); } finally { setLoading(false); }
   };
 
   const startInterview = async (c) => {
@@ -195,13 +167,8 @@ function Dashboard() {
             <input type="file" multiple accept=".pdf" onChange={e => setFiles(Array.from(e.target.files))} style={{ marginTop: '0.75rem', color: '#64748b' }} />
             <button onClick={handleAnalyze} disabled={loading || !jdText || files.length === 0}
               style={{ width: '100%', marginTop: '1.5rem', padding: '0.9rem', borderRadius: 12, border: 'none', background: loading ? '#e2e8f0' : 'linear-gradient(135deg,#4f46e5,#7c3aed)', color: 'white', fontWeight: 700, fontSize: '1rem', cursor: loading ? 'not-allowed' : 'pointer' }}>
-              {loading ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite', marginRight: 8 }} />Scanning {scanProgress}%...</> : 'Analyze Candidates'}
+              {loading ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite', marginRight: 8 }} />Analyzing...</> : 'Analyze Candidates'}
             </button>
-            {loading && (
-              <div style={{ marginTop: '1rem', height: 6, background: '#f1f5f9', borderRadius: 99, overflow: 'hidden' }}>
-                <motion.div initial={{ width: 0 }} animate={{ width: `${scanProgress}%` }} style={{ height: '100%', background: '#6366f1' }} />
-              </div>
-            )}
           </div>
           <div style={{ background: 'white', borderRadius: 20, padding: '2rem', boxShadow: '0 4px 24px rgba(0,0,0,0.06)', border: '1px solid #e2e8f0' }}>
             <Zap size={32} color="#6366f1" />
